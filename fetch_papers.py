@@ -1,0 +1,338 @@
+"""
+fetch_papers.py
+
+Retrieves papers with abstracts and human review scores from OpenReview.
+Supports ICLR, NeurIPS, and ICML via the openreview-py v2 API.
+"""
+
+import json
+import os
+import time
+import re
+from pathlib import Path
+from tqdm import tqdm
+import openreview
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # install python-dotenv or set env vars manually
+
+# ---------------------------------------------------------------------------
+# Venue configuration
+# Each entry maps a friendly name to (venue_id, submission_invitation_suffix,
+# review_invitation_suffix, score_field_name).
+# These vary slightly across years/venues — adjust if the API returns nothing.
+# ---------------------------------------------------------------------------
+VENUE_CONFIGS = {
+    # -----------------------------------------------------------------------
+    # ICLR 2025
+    # Rating scale: discrete {1, 3, 5, 6, 8, 10}  (NOT a continuous 1–10)
+    # Decisions public as of early 2026; acceptance rate ~32%.
+    # Additional per-review fields: soundness, presentation, contribution.
+    # -----------------------------------------------------------------------
+    "ICLR_2025": {
+        "venue_id": "ICLR.cc/2025/Conference",
+        "submission_inv": "ICLR.cc/2025/Conference/-/Blind_Submission",
+        "review_inv_suffix": "Official_Review",
+        "score_field": "rating",          # discrete: 1, 3, 5, 6, 8, 10
+        "decision_inv": "ICLR.cc/2025/Conference/-/Decision",
+        "decision_field": "decision",
+        "extra_score_fields": ["soundness", "presentation", "contribution"],
+    },
+    # -----------------------------------------------------------------------
+    # ICML 2025
+    # Conference held July 13–19 2025, Vancouver.
+    # Decisions/papers should be public by March 2026.
+    # -----------------------------------------------------------------------
+    "ICML_2025": {
+        "venue_id": "ICML.cc/2025/Conference",
+        "submission_inv": "ICML.cc/2025/Conference/-/Submission",
+        "review_inv_suffix": "Review",
+        "score_field": "rating",
+        "decision_inv": "ICML.cc/2025/Conference/-/Decision",
+        "decision_field": "decision",
+        "extra_score_fields": ["confidence"],
+    },
+    # -----------------------------------------------------------------------
+    # ICLR 2024  (kept as fallback / comparison year)
+    # Rating scale: 1–10 continuous with text labels.
+    # -----------------------------------------------------------------------
+    "ICLR_2024": {
+        "venue_id": "ICLR.cc/2024/Conference",
+        "submission_inv": "ICLR.cc/2024/Conference/-/Blind_Submission",
+        "review_inv_suffix": "Official_Review",
+        "score_field": "rating",          # e.g. "6: marginally above threshold"
+        "decision_inv": "ICLR.cc/2024/Conference/-/Decision",
+        "decision_field": "decision",
+        "extra_score_fields": [],
+    },
+    "ICLR_2023": {
+        "venue_id": "ICLR.cc/2023/Conference",
+        "submission_inv": "ICLR.cc/2023/Conference/-/Blind_Submission",
+        "review_inv_suffix": "Official_Review",
+        "score_field": "rating",
+        "decision_inv": "ICLR.cc/2023/Conference/-/Decision",
+        "decision_field": "decision",
+        "extra_score_fields": [],
+    },
+    # -----------------------------------------------------------------------
+    # NeurIPS 2024
+    # Additional fields: correctness, novelty, presentation.
+    # -----------------------------------------------------------------------
+    "NeurIPS_2024": {
+        "venue_id": "NeurIPS.cc/2024/Conference",
+        "submission_inv": "NeurIPS.cc/2024/Conference/-/Submission",
+        "review_inv_suffix": "Review",
+        "score_field": "rating",
+        "decision_inv": "NeurIPS.cc/2024/Conference/-/Decision",
+        "decision_field": "decision",
+        "extra_score_fields": ["correctness", "novelty", "presentation"],
+    },
+    "ICML_2024": {
+        "venue_id": "ICML.cc/2024/Conference",
+        "submission_inv": "ICML.cc/2024/Conference/-/Submission",
+        "review_inv_suffix": "Review",
+        "score_field": "rating",
+        "decision_inv": "ICML.cc/2024/Conference/-/Decision",
+        "decision_field": "decision",
+        "extra_score_fields": [],
+    },
+}
+
+DATA_DIR = Path(__file__).parent / "data"
+
+
+def get_client() -> openreview.api.OpenReviewClient:
+    """
+    Return an OpenReview v2 client.
+    If OPENREVIEW_USERNAME and OPENREVIEW_PASSWORD are set (in .env or shell),
+    logs in — required for ICLR 2025 and other gated venues.
+    Falls back to anonymous access for fully public venues.
+    """
+    username = os.environ.get("OPENREVIEW_USERNAME", "")
+    password = os.environ.get("OPENREVIEW_PASSWORD", "")
+    return openreview.api.OpenReviewClient(
+        baseurl="https://api2.openreview.net",
+        username=username or None,
+        password=password or None,
+    )
+
+
+def _parse_score(raw) -> int | None:
+    """
+    Normalize a rating field to an integer.
+    Handles formats like:
+      - 6
+      - "6: marginally above threshold"
+      - "8: accept"
+    """
+    if raw is None:
+        return None
+    m = re.match(r"^\s*(\d+)", str(raw))
+    return int(m.group(1)) if m else None
+
+
+def fetch_reviews_for_paper(
+    client: openreview.api.OpenReviewClient,
+    forum_id: str,
+    score_field: str,
+    extra_fields: list[str] | None = None,
+) -> tuple[list[int], dict[str, list[int]]]:
+    """
+    Return (primary_scores, extra_scores) from official reviews for a paper.
+
+    primary_scores: list of ints for score_field across all reviewers.
+    extra_scores:   dict mapping extra field name → list of ints (ICLR 2025:
+                    soundness, presentation, contribution).
+    """
+    try:
+        notes = client.get_all_notes(forum=forum_id)
+    except Exception:
+        return [], {}
+
+    primary_scores = []
+    extra_scores: dict[str, list[int]] = {f: [] for f in (extra_fields or [])}
+
+    for note in notes:
+        inv = note.invitation or ""
+        if "Official_Review" not in inv and "Review" not in inv:
+            continue
+
+        val = note.content.get(score_field, {})
+        if isinstance(val, dict):
+            val = val.get("value")
+        score = _parse_score(val)
+        if score is not None:
+            primary_scores.append(score)
+
+        for field in (extra_fields or []):
+            ev = note.content.get(field, {})
+            if isinstance(ev, dict):
+                ev = ev.get("value")
+            escore = _parse_score(ev)
+            if escore is not None:
+                extra_scores[field].append(escore)
+
+    return primary_scores, extra_scores
+
+
+def fetch_decision(
+    client: openreview.api.OpenReviewClient,
+    forum_id: str,
+    decision_field: str,
+) -> str | None:
+    """Return the decision string for a paper (Accept / Reject / etc.)."""
+    try:
+        notes = client.get_all_notes(forum=forum_id)
+    except Exception:
+        return None
+
+    for note in notes:
+        if "Decision" not in (note.invitation or ""):
+            continue
+        val = note.content.get(decision_field, {})
+        if isinstance(val, dict):
+            val = val.get("value")
+        if val:
+            return str(val)
+    return None
+
+
+def fetch_papers(
+    venue_key: str = "ICLR_2025",
+    n_papers: int = 50,
+    require_reviews: bool = True,
+    delay: float = 0.3,
+) -> list[dict]:
+    """
+    Fetch up to n_papers submissions from the given venue, including their
+    abstracts and human review scores.
+
+    Args:
+        venue_key:       Key into VENUE_CONFIGS.
+        n_papers:        Maximum number of papers to return.
+        require_reviews: If True, skip papers with no review scores.
+        delay:           Seconds to sleep between API calls (rate limiting).
+
+    Returns:
+        List of paper dicts.
+    """
+    cfg = VENUE_CONFIGS[venue_key]
+    client = get_client()
+
+    print(f"Fetching submissions from {cfg['venue_id']} ...")
+    # get_notes() accepts limit; get_all_notes() paginates everything and does not.
+    submissions = client.get_notes(
+        invitation=cfg["submission_inv"],
+        limit=n_papers * 3,   # overfetch — many may lack reviews
+    )
+    print(f"  Retrieved {len(submissions)} raw submissions.")
+
+    papers = []
+    for sub in tqdm(submissions, desc="Processing papers"):
+        c = sub.content
+
+        # Extract fields (v2 API wraps values in {"value": ...})
+        def _val(field):
+            v = c.get(field, {})
+            return v.get("value") if isinstance(v, dict) else v
+
+        title = _val("title") or ""
+        abstract = _val("abstract") or ""
+
+        if not title or not abstract:
+            continue
+
+        extra_fields = cfg.get("extra_score_fields", [])
+        scores, extra_scores = fetch_reviews_for_paper(
+            client, sub.id, cfg["score_field"], extra_fields
+        )
+        if require_reviews and not scores:
+            time.sleep(delay)
+            continue
+
+        decision = fetch_decision(client, sub.id, cfg["decision_field"])
+
+        paper = {
+            "id": sub.id,
+            "venue": venue_key,
+            "title": title,
+            "abstract": abstract,
+            "keywords": _val("keywords") or [],
+            "human_scores": scores,
+            "avg_human_score": round(sum(scores) / len(scores), 2) if scores else None,
+            "decision": decision,
+        }
+        # Store per-field averages for venues with multi-dimensional ratings
+        # (e.g. ICLR 2025: soundness, presentation, contribution)
+        for field, fscores in extra_scores.items():
+            paper[f"avg_{field}"] = round(sum(fscores) / len(fscores), 2) if fscores else None
+        papers.append(paper)
+
+        if len(papers) >= n_papers:
+            break
+        time.sleep(delay)
+
+    return papers
+
+
+def fetch_balanced_dataset(
+    venue_key: str = "ICLR_2025",
+    n_per_class: int = 15,
+) -> list[dict]:
+    """
+    Return a balanced dataset with roughly equal accepted and rejected papers.
+    Falls back to unbalanced if one class is unavailable.
+    """
+    papers = fetch_papers(venue_key=venue_key, n_papers=n_per_class * 6, require_reviews=True)
+
+    accepted, rejected = [], []
+    for p in papers:
+        d = (p.get("decision") or "").lower()
+        if "accept" in d:
+            accepted.append(p)
+        elif "reject" in d:
+            rejected.append(p)
+
+    # Balance
+    n = min(n_per_class, len(accepted), len(rejected))
+    if n == 0:
+        print("Warning: could not balance dataset — returning all papers.")
+        return papers[: n_per_class * 2]
+
+    balanced = accepted[:n] + rejected[:n]
+    print(f"Balanced dataset: {n} accepted + {n} rejected = {len(balanced)} papers.")
+    return balanced
+
+
+def save_papers(papers: list[dict], path: Path | None = None) -> Path:
+    """Save papers list to JSON."""
+    if path is None:
+        path = DATA_DIR / "papers.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(papers, f, indent=2, ensure_ascii=False)
+    print(f"Saved {len(papers)} papers to {path}")
+    return path
+
+
+def load_papers(path: Path | None = None) -> list[dict]:
+    """Load papers from JSON."""
+    if path is None:
+        path = DATA_DIR / "papers.json"
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+if __name__ == "__main__":
+    papers = fetch_balanced_dataset(venue_key="ICLR_2025", n_per_class=15)
+    save_papers(papers)
+    print(f"\nSample paper:")
+    if papers:
+        p = papers[0]
+        print(f"  Title: {p['title']}")
+        print(f"  Abstract (first 200 chars): {p['abstract'][:200]}...")
+        print(f"  Human scores: {p['human_scores']}")
+        print(f"  Decision: {p['decision']}")
