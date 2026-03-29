@@ -1,0 +1,91 @@
+[
+  {
+    "id": "PwxYoMvmvy",
+    "venue": "ICLR_2025",
+    "title": "Beyond Random Masking: When Dropout meets Graph Convolutional Networks",
+    "abstract": "Graph Convolutional Networks (GCNs) have emerged as powerful tools for learning on graph-structured data, yet the behavior of dropout in these models remains poorly understood. This paper presents a comprehensive theoretical analysis of dropout in GCNs, revealing that its primary role differs fundamentally from standard neural networks - preventing oversmoothing rather than co-adaptation. We demonstrate that dropout in GCNs creates dimension-specific stochastic sub-graphs, leading to a form of structural regularization not present in standard neural networks. Our analysis shows that dropout effects are inherently degree-dependent, resulting in adaptive regularization that considers the topological importance of nodes. We provide new insights into dropout's role in mitigating oversmoothing and derive novel generalization bounds that account for graph-specific dropout effects. Furthermore, we analyze the synergistic interaction between dropout and batch normalization in GCNs, uncovering a mechanism that enhances overall regularization. Our theoretical findings are validated through extensive experiments on both node-level and graph-level tasks across 14 datasets. Notably, GCN with dropout and batch normalization outperforms state-of-the-art methods on several benchmarks, demonstrating the practical impact of our theoretical insights.",
+    "keywords": [
+      "Graph neural networks",
+      "Dropout"
+    ],
+    "human_scores": [
+      6,
+      6,
+      6,
+      6
+    ],
+    "avg_human_score": 6.0,
+    "decision": "Accept (Poster)",
+    "avg_soundness": 2.5,
+    "avg_presentation": 3.0,
+    "avg_contribution": 2.5
+  },
+  {
+    "id": "ONfWFluZBI",
+    "venue": "ICLR_2025",
+    "title": "Self-supervised contrastive learning performs non-linear system identification",
+    "abstract": "Self-supervised learning (SSL) approaches have brought tremendous success across many tasks and domains. It has been argued that these successes can be attributed to a link between SSL and identifiable representation learning: Temporal structure and auxiliary variables ensure that latent representations are related to the true underlying generative factors of the data. Here, we deepen this connection and show that SSL can perform system identification in latent space. We propose dynamics contrastive learning, a framework to uncover linear, switching linear and non-linear dynamics under a non-linear observation model, give theoretical guarantees and validate them empirically.",
+    "keywords": [
+      "system identification",
+      "dynamics learning",
+      "identifiability",
+      "self-supervised learning"
+    ],
+    "human_scores": [
+      6,
+      6,
+      6,
+      6,
+      8
+    ],
+    "avg_human_score": 6.4,
+    "decision": "Accept (Poster)",
+    "avg_soundness": 3.0,
+    "avg_presentation": 2.6,
+    "avg_contribution": 2.8
+  },
+  {
+    "id": "zkNCWtw2fd",
+    "venue": "ICLR_2025",
+    "title": "Synergistic Approach for Simultaneous Optimization of Monolingual, Cross-lingual, and Multilingual Information Retrieval",
+    "abstract": "Information retrieval across different languages is an increasingly important challenge in natural language processing. Recent approaches based on multilingual pre-trained language models have achieved remarkable success, yet they often optimize for either monolingual, cross-lingual, or multilingual retrieval performance at the expense of others. This paper proposes a novel hybrid batch training strategy to simultaneously improve zero-shot retrieval performance across monolingual, cross-lingual, and multilingual settings while mitigating language bias. The approach fine-tunes multilingual language models using a mix of monolingual and cross-lingual question-answer pair batches sampled based on dataset size. Experiments on XQuAD-R, MLQA-R, and MIRACL benchmark datasets show that the proposed method consistently achieves comparable or superior results in zero-shot retrieval across various languages and retrieval tasks compared to monolingual-only or cross-lingual-only training. Hybrid batch training also substantially reduces language bias in multilingual retrieval compared to monolingual training. These results demonstrate the effectiveness of the proposed approach for learning language-agnostic representations that enable strong zero-shot retrieval performance across diverse languages.",
+    "keywords": [
+      "Information Retrieval",
+      "Multilingualism and Cross-Lingual NLP",
+      "Question Answering"
+    ],
+    "human_scores": [
+      3,
+      3,
+      3
+    ],
+    "avg_human_score": 3.0,
+    "decision": "Reject",
+    "avg_soundness": 2.33,
+    "avg_presentation": 2.33,
+    "avg_contribution": 1.67
+  },
+  {
+    "id": "viQ1bLqKY0",
+    "venue": "ICLR_2025",
+    "title": "EXecution-Eval: Can language models execute real-world code?",
+    "abstract": "As Large Language Models (LLMs) advance, traditional benchmarks face challenges of dataset saturation and disconnection from real-world performance, limiting our understanding of true model capabilities. We introduce EXecution-Eval (EXE), a benchmark designed to assess LLMs' ability to execute code and predict program states. EXE attempts to address key limitations in existing evaluations: difficulty scaling, task diversity, training data contamination, and cost-effective scalability.\nComprising over 30,000 tasks derived from 1,000 popular Python repositories on GitHub, EXE spans a range of context lengths and algorithmic complexities. Tasks require models to execute code, necessitating various operations including mathematical reasoning, logical inference, bit manipulation, string operations, loop execution, and maintaining multiple internal variable states during computation. Our methodology involves: (a) selecting and preprocessing GitHub repositories, (b) generating diverse inputs for functions, (c) executing code to obtain ground truth outputs, and (d) formulating tasks that require models to reason about code execution. This approach allows for continuous new task generation for as few as 1,200 tokens, significantly reducing the risk of models \"training on the test set.\"\nWe evaluate several state-of-the-art LLMs on EXE, revealing insights into their code comprehension and execution capabilities. Our results show that even the best-performing models struggle with complex, multi-step execution tasks, highlighting specific computational concepts that pose the greatest challenges for today's LLMs. Furthermore, we review EXE's potential for finding and predicting errors to aid in assessing a model's cybersecurity capabilities. We propose EXE as a sustainable and challenging testbed for evaluating frontier models, offering potential insights into their internal mechanistic advancement",
+    "keywords": [
+      "large language model",
+      "evaluation",
+      "benchmark",
+      "code execution"
+    ],
+    "human_scores": [
+      3,
+      5,
+      3,
+      5
+    ],
+    "avg_human_score": 4.0,
+    "decision": "Reject",
+    "avg_soundness": 2.0,
+    "avg_presentation": 2.5,
+    "avg_contribution": 2.0
+  }
+]

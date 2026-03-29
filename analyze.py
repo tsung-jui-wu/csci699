@@ -58,6 +58,9 @@ def load_scores_df(path: Path | None = None) -> pd.DataFrame:
     with open(path, encoding="utf-8") as f:
         records = json.load(f)
     df = pd.DataFrame(records)
+    if df.empty or "run" not in df.columns:
+        print("No score data found — run steps 1–4 first.")
+        return df
     # Keep only aggregated rows (run == 'mean')
     df = df[df["run"] == "mean"].copy()
     df = df.drop(columns=["run"])
@@ -322,6 +325,9 @@ def run_full_analysis(
         papers_path = RESULTS_DIR / "papers.json"
 
     df = load_scores_df(scores_path)
+    if df.empty:
+        print("Scores table is empty — nothing to analyze.")
+        return
     with open(papers_path, encoding="utf-8") as f:
         papers = json.load(f)
 
