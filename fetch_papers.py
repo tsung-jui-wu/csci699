@@ -34,7 +34,7 @@ VENUE_CONFIGS = {
     # -----------------------------------------------------------------------
     "ICLR_2025": {
         "venue_id": "ICLR.cc/2025/Conference",
-        "submission_inv": "ICLR.cc/2025/Conference/-/Blind_Submission",
+        "submission_inv": "ICLR.cc/2025/Conference/-/Submission",
         "review_inv_suffix": "Official_Review",
         "score_field": "rating",          # discrete: 1, 3, 5, 6, 8, 10
         "decision_inv": "ICLR.cc/2025/Conference/-/Decision",
@@ -61,7 +61,7 @@ VENUE_CONFIGS = {
     # -----------------------------------------------------------------------
     "ICLR_2024": {
         "venue_id": "ICLR.cc/2024/Conference",
-        "submission_inv": "ICLR.cc/2024/Conference/-/Blind_Submission",
+        "submission_inv": "ICLR.cc/2024/Conference/-/Submission",
         "review_inv_suffix": "Official_Review",
         "score_field": "rating",          # e.g. "6: marginally above threshold"
         "decision_inv": "ICLR.cc/2024/Conference/-/Decision",
@@ -70,7 +70,7 @@ VENUE_CONFIGS = {
     },
     "ICLR_2023": {
         "venue_id": "ICLR.cc/2023/Conference",
-        "submission_inv": "ICLR.cc/2023/Conference/-/Blind_Submission",
+        "submission_inv": "ICLR.cc/2023/Conference/-/Submission",
         "review_inv_suffix": "Official_Review",
         "score_field": "rating",
         "decision_inv": "ICLR.cc/2023/Conference/-/Decision",
@@ -111,13 +111,18 @@ def get_client() -> openreview.api.OpenReviewClient:
     logs in — required for ICLR 2025 and other gated venues.
     Falls back to anonymous access for fully public venues.
     """
-    username = os.environ.get("OPENREVIEW_USERNAME", "")
-    password = os.environ.get("OPENREVIEW_PASSWORD", "")
-    return openreview.api.OpenReviewClient(
-        baseurl="https://api2.openreview.net",
-        username=username or None,
-        password=password or None,
-    )
+    # v2 API login: pass username/password only when both are provided.
+    # The v2 endpoint uses 'id' internally — do NOT pass them as keyword
+    # args if empty, as that triggers a 400 AdditionalPropertiesError.
+    username = os.environ.get("OPENREVIEW_USERNAME", "").strip()
+    password = os.environ.get("OPENREVIEW_PASSWORD", "").strip()
+    if username and password:
+        return openreview.api.OpenReviewClient(
+            baseurl="https://api2.openreview.net",
+            username=username,
+            password=password,
+        )
+    return openreview.api.OpenReviewClient(baseurl="https://api2.openreview.net")
 
 
 def _parse_score(raw) -> int | None:
@@ -156,7 +161,9 @@ def fetch_reviews_for_paper(
     extra_scores: dict[str, list[int]] = {f: [] for f in (extra_fields or [])}
 
     for note in notes:
-        inv = note.invitation or ""
+        # v2 API uses `invitations` (list); v1 used `invitation` (string)
+        invs = getattr(note, "invitations", None) or [getattr(note, "invitation", "") or ""]
+        inv = " ".join(invs)
         if "Official_Review" not in inv and "Review" not in inv:
             continue
 
@@ -190,7 +197,9 @@ def fetch_decision(
         return None
 
     for note in notes:
-        if "Decision" not in (note.invitation or ""):
+        invs = getattr(note, "invitations", None) or [getattr(note, "invitation", "") or ""]
+        inv = " ".join(invs)
+        if "Decision" not in inv:
             continue
         val = note.content.get(decision_field, {})
         if isinstance(val, dict):
