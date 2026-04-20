@@ -335,13 +335,115 @@ def load_papers(path: Path | None = None) -> list[dict]:
         return json.load(f)
 
 
+def fetch_papers_by_ids(
+    paper_ids: list[str],
+    score_field: str = "rating",
+    extra_fields: list[str] | None = None,
+    decision_field: str = "decision",
+    delay: float = 0.3,
+) -> list[dict]:
+    """
+    Fetch specific papers by their OpenReview forum IDs.
+
+    Args:
+        paper_ids:      List of OpenReview paper/forum IDs.
+        score_field:    Review score field name (default: "rating").
+        extra_fields:   Additional score fields to extract.
+        decision_field: Decision field name (default: "decision").
+        delay:          Seconds to sleep between API calls.
+
+    Returns:
+        List of paper dicts (same schema as fetch_papers).
+    """
+    client = get_client()
+    papers = []
+
+    for pid in tqdm(paper_ids, desc="Fetching papers by ID"):
+        try:
+            sub = client.get_note(pid)
+        except Exception as e:
+            print(f"  Warning: could not fetch {pid}: {e}")
+            time.sleep(delay)
+            continue
+
+        c = sub.content
+
+        def _val(field):
+            v = c.get(field, {})
+            return v.get("value") if isinstance(v, dict) else v
+
+        title = _val("title") or ""
+        abstract = _val("abstract") or ""
+
+        scores, extra_scores = fetch_reviews_for_paper(
+            client, sub.id, score_field, extra_fields or []
+        )
+        decision = fetch_decision(client, sub.id, decision_field)
+
+        paper = {
+            "id": sub.id,
+            "venue": _val("venue") or _val("venueid") or "",
+            "title": title,
+            "abstract": abstract,
+            "keywords": _val("keywords") or [],
+            "human_scores": scores,
+            "avg_human_score": round(sum(scores) / len(scores), 2) if scores else None,
+            "decision": decision,
+        }
+        for field, fscores in extra_scores.items():
+            paper[f"avg_{field}"] = round(sum(fscores) / len(fscores), 2) if fscores else None
+
+        papers.append(paper)
+        time.sleep(delay)
+
+    return papers
+
+
+def download_pdfs(
+    paper_ids: list[str],
+    out_dir: Path | None = None,
+    delay: float = 0.5,
+) -> list[Path]:
+    """
+    Download PDFs for given OpenReview paper IDs.
+    Requires OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD in .env for gated venues.
+
+    Returns list of saved PDF paths.
+    """
+    if out_dir is None:
+        out_dir = DATA_DIR / "pdfs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    client = get_client()
+    saved = []
+
+    for pid in tqdm(paper_ids, desc="Downloading PDFs"):
+        out_path = out_dir / f"{pid}.pdf"
+        if out_path.exists():
+            print(f"  Already exists: {out_path}")
+            saved.append(out_path)
+            continue
+        try:
+            pdf_bytes = client.get_pdf(pid, is_reference=False)
+            out_path.write_bytes(pdf_bytes)
+            print(f"  Saved: {out_path}")
+            saved.append(out_path)
+        except Exception as e:
+            print(f"  Warning: could not download {pid}: {e}")
+        time.sleep(delay)
+
+    return saved
+
+
 if __name__ == "__main__":
-    papers = fetch_balanced_dataset(venue_key="ICLR_2025", n_per_class=15)
-    save_papers(papers)
-    print(f"\nSample paper:")
+    ids = ["PwxYoMvmvy", "ONfWFluZBI", "zkNCWtw2fd", "viQ1bLqKY0"]
+
+    # Fetch metadata
+    papers = fetch_papers_by_ids(ids)
     if papers:
-        p = papers[0]
-        print(f"  Title: {p['title']}")
-        print(f"  Abstract (first 200 chars): {p['abstract'][:200]}...")
-        print(f"  Human scores: {p['human_scores']}")
-        print(f"  Decision: {p['decision']}")
+        save_papers(papers, DATA_DIR / "papers_by_id.json")
+        for p in papers:
+            print(f"  [{p['id']}] {p['title']} | scores={p['human_scores']} | decision={p['decision']}")
+
+    # Download PDFs
+    download_pdfs(ids)

@@ -1,0 +1,35 @@
+You are an expert academic writer and a top-tier conference reviewer (e.g., NeurIPS, ICLR, AAAI).
+
+Your task is to rewrite the following abstract to maximize its chances of acceptance at a top-tier AI conference.
+
+IMPORTANT GOALS:
+1. Clearly articulate the problem and why it is important.
+2. Highlight novelty and contributions explicitly (avoid vague claims).
+3. Emphasize technical rigor and methodological innovation.
+4. Clearly state the main results and why they matter.
+5. Improve logical flow, clarity, and conciseness.
+6. Use a confident but not exaggerated academic tone.
+7. Avoid generic or empty phrases.
+
+STYLE REQUIREMENTS:
+- Follow top-tier ML conference style (NeurIPS/ICLR).
+- Be precise and information-dense.
+- Avoid redundancy.
+- Prefer active voice and clear structure.
+- Keep it within 150–200 words unless necessary.
+
+STRUCTURE (implicitly enforce, do NOT label sections):
+- Problem → Gap → Proposed Method → Key Idea → Results → Impact
+
+OPTIONAL IMPROVEMENTS:
+- Make contributions sound concrete and measurable.
+- If missing, infer and strengthen claims cautiously without hallucinating.
+
+Here is the original abstract:
+"""
+[PASTE YOUR ABSTRACT HERE]
+"""
+
+Now produce:
+1. A rewritten abstract (final version).
+2. A brief bullet list explaining what was improved (max 5 bullets).
