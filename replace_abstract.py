@@ -62,6 +62,10 @@ def find_abstract_body_rect(page):
     for b in body_blocks[1:]:
         rect |= fitz.Rect(b[:4])
 
+    # Extend rect down to the intro section header (use all available space)
+    if intro_y is not None:
+        rect = fitz.Rect(rect.x0, rect.y0, rect.x1, intro_y)
+
     # Detect original font size from the first span inside the body rect
     orig_fontsize = 10.0  # fallback
     page_dict = page.get_text("dict")
@@ -83,7 +87,40 @@ def find_abstract_body_rect(page):
     return rect, intro_y, orig_fontsize
 
 
-def replace_abstract(input_path: str, output_path: str, new_text: str) -> None:
+def get_original_abstract_length(page):
+    """Extract original abstract text and return its character length."""
+    blocks = page.get_text("blocks")
+    abstract_idx = None
+    intro_y = None
+
+    for i, b in enumerate(blocks):
+        text = b[4].strip()
+        if abstract_idx is None and re.match(
+            r"^a[\s]*b[\s]*s[\s]*t[\s]*r[\s]*a[\s]*c[\s]*t\b", text, re.I
+        ):
+            abstract_idx = i
+        elif abstract_idx is not None and _INTRO_PATTERN.match(text):
+            intro_y = b[1]
+            break
+
+    if abstract_idx is None:
+        return None
+
+    body_blocks = blocks[abstract_idx + 1 :]
+    if intro_y is not None:
+        body_blocks = [b for b in body_blocks if b[1] < intro_y]
+
+    body_blocks = [
+        b
+        for b in body_blocks
+        if not re.match(r"^(keywords|key\s*words)\b", b[4].strip(), re.I)
+    ]
+
+    abstract_text = " ".join(b[4].strip() for b in body_blocks)
+    return len(abstract_text)
+
+
+def replace_abstract(input_path: str, output_path: str, new_text: str, auto_trim: bool = True) -> None:
     if os.path.abspath(input_path) == os.path.abspath(output_path):
         raise ValueError("Output path must differ from input path.")
 
@@ -97,6 +134,14 @@ def replace_abstract(input_path: str, output_path: str, new_text: str) -> None:
             raise ValueError("PDF contains no pages.")
 
         page = doc[0]
+
+        # Auto-trim if enabled: match original abstract length
+        if auto_trim:
+            orig_len = get_original_abstract_length(page)
+            if orig_len and len(new_text) > orig_len:
+                new_text = new_text[:orig_len]
+                print(f"Note: trimmed text from {len(new_text) + (len(new_text) - orig_len)} to {orig_len} characters.", file=sys.stderr)
+
         abstract_rect, intro_y, fontsize = find_abstract_body_rect(page)
 
         if intro_y is None:
@@ -117,19 +162,30 @@ def replace_abstract(input_path: str, output_path: str, new_text: str) -> None:
         page.add_redact_annot(abstract_rect, fill=(1, 1, 1))
         page.apply_redactions()
 
-        overflow = page.insert_textbox(
-            abstract_rect,
-            new_text,
-            fontname="tiro",  # Times Roman — closest base-14 match to Computer Modern
-            fontsize=fontsize,
-            color=(0, 0, 0),
-            align=fitz.TEXT_ALIGN_JUSTIFY,
-        )
+        # Auto-shrink font size until text fits the box (min 6pt)
+        current_size = fontsize
+        while current_size >= 6:
+            overflow = page.insert_textbox(
+                abstract_rect,
+                new_text,
+                fontname="tiro",
+                fontsize=current_size,
+                color=(0, 0, 0),
+                align=fitz.TEXT_ALIGN_JUSTIFY,
+            )
+            if overflow >= 0:
+                break
+            current_size -= 0.5
 
         if overflow < 0:
             print(
-                f"Warning: replacement text overflowed the abstract box by "
-                f"{abs(overflow):.1f}pt. Consider shortening the text.",
+                "Warning: text still overflows at minimum font size (6pt). "
+                "The abstract may be truncated.",
+                file=sys.stderr,
+            )
+        elif current_size < fontsize:
+            print(
+                f"Note: font size reduced from {fontsize:.1f}pt to {current_size:.1f}pt to fit.",
                 file=sys.stderr,
             )
 
@@ -140,6 +196,18 @@ def replace_abstract(input_path: str, output_path: str, new_text: str) -> None:
 
     print(f"Saved revised PDF to: {output_path}")
 
+model = "4o"
+prompt_v = "1"
+# paper_id = "ONfWFluZBI"
+# paper_id = "PwxYoMvmvy"
+# paper_id = "viQ1bLqKY0"
+paper_id = "zkNCWtw2fd"
+
+paper_path = f"D:\\csci699\\data\\pdfs\\{paper_id}.pdf"
+output_path = f"D:\\csci699\\data\\pdfs\\{paper_id}_{model}_{prompt_v}.pdf"
+abst = f"D:\\csci699\\data\\rewrites\\{paper_id}_{model}_{prompt_v}.txt"
+
+
 
 def main():
     import argparse
@@ -147,17 +215,17 @@ def main():
     parser = argparse.ArgumentParser(description="Replace the abstract in a research paper PDF.")
     parser.add_argument(
         "-i", "--input",
-        default="input.pdf",
+        default=paper_path,
         help="Input PDF path (default: input.pdf)",
     )
     parser.add_argument(
         "-o", "--output",
-        default="output.pdf",
+        default=output_path,
         help="Output PDF path (default: output.pdf)",
     )
     parser.add_argument(
         "-t", "--text",
-        required=True,
+        default=abst,
         help="Path to a .txt file containing the replacement abstract text",
     )
     args = parser.parse_args()
